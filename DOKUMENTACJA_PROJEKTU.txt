@@ -1,0 +1,438 @@
+﻿DOKUMENTACJA PROJEKTU - NOCNA STRAZ
+
+Wersja dokumentacji: 2026-04-26
+Wersja Unity: 6000.3.9f1
+
+
+1. OPIS PROJEKTU
+----------------
+Projekt jest grą 3D w Unity, w której gracz pełni nocną zmianę jako strażnik/serwisant. Rozgrywka odbywa się w nocy, od godziny 22:00 do 06:00. W trakcie zmiany gracz wykonuje losowo wybrane zadania na mapie, używa narzędzi z hotbara, zarabia pieniądze, może kupić czasowe widzenie markerów tasków i na końcu zmiany otrzymuje raport.
+
+Główna pętla gry:
+1. Gracz startuje w MainMenu.
+2. Po kliknięciu Play ładowana jest scena SampleScene.
+3. Startuje nocna zmiana 22:00 - 06:00.
+4. GameManager losuje aktywne zadania na daną noc.
+5. Gracz wykonuje zadania przy pomocy odpowiednich narzędzi.
+6. O godzinie 01:00 następuje awaria prądu i pojawia się dodatkowy task naprawy skrzynki elektrycznej.
+7. O godzinie 06:00 gracz traci możliwość ruchu i pojawia się raport zmiany.
+8. Przycisk Następna noc zapisuje portfel i restartuje SampleScene, zaczynając nową zmianę.
+
+
+2. SCENY
+--------
+Sceny wpisane w Build Settings:
+- Assets/Scenes/MainMenu.unity
+- Assets/Scenes/SampleScene.unity
+
+MainMenu:
+- Menu startowe.
+- Przycisk Play powinien ładować SampleScene.
+
+SampleScene:
+- Główna mapa gry.
+- Zawiera gracza, UI, sklep, taski, elementy świata i systemy runtime.
+- Większość dodatkowych systemów uruchamia się automatycznie przez RuntimeInitializeOnLoadMethod, więc nie wszystkie muszą być ręcznie dodane do sceny.
+
+
+3. NAJWAŻNIEJSZE FOLDERY
+------------------------
+Assets/Scripts/Foundation:
+- Podstawowe systemy gry: czas, portfel, narzędzia, GameManager, UI zegara i portfela.
+
+Assets/Scripts/Interaction:
+- System patrzenia na obiekty i interakcji klawiszem E.
+
+Assets/Scripts/Items:
+- Wyświetlanie narzędzi w ręce gracza, latarka, animacje użycia wiadra i wałka.
+
+Assets/Scripts/Tasks:
+- Definicje tasków, runtime tasków, lista tasków w UI i ogólny TaskTarget.
+
+Assets/Scripts/Ui:
+- Sklep i markery tasków widoczne przez ściany.
+
+Assets/Scripts/World:
+- Systemy świata: graffiti, śmieci/kosze, hydranty, ognisko, awaria prądu, sklep jako obiekt interaktywny, łódka.
+
+Assets/_Project/Data/Tasks:
+- ScriptableObjecty z definicjami tasków:
+- Task_Campfire.asset
+- Task_Graffiti.asset
+- Task_Hydrant.asset
+- Task_Trash.asset
+
+Assets/Chess Set:
+- Assety szachów, planszy i materiałów, które były ostatnio poprawiane.
+
+
+4. SYSTEM CZASU
+---------------
+Główny plik:
+Assets/Scripts/Foundation/TimeManager.cs
+
+Najważniejsze informacje:
+- Zmiana trwa od 22:00 do 06:00.
+- Cała zmiana to 8 godzin czasu gry.
+- Domyślna realna długość zmiany to 600 sekund.
+- TimeManager przelicza realny postęp na czas gry.
+- Udostępnia FormattedTime, np. 22:00, 01:00, 06:00.
+- Przy końcu zmiany odpala event OnNightEnded.
+
+Ważne pola:
+- shiftDurationSeconds: realna długość jednej nocy w sekundach.
+- elapsedShiftMinutes: ile minut czasu gry minęło od 22:00.
+- IsShiftRunning: czy noc nadal trwa.
+
+
+5. GAMEMANAGER I PRZEBIEG NOCY
+------------------------------
+Główny plik:
+Assets/Scripts/Foundation/GameManager.cs
+
+GameManager odpowiada za:
+- Start nowej nocy.
+- Losowanie aktywnych tasków.
+- Reset awarii prądu.
+- Startowy portfel.
+- Zapis portfela w PlayerPrefs.
+- Raport zmiany o godzinie 06:00.
+- Blokadę ruchu gracza przy raporcie.
+- Obsługę przycisku Następna noc.
+
+Domyślne ustawienia:
+- Startowy portfel: 100.
+- Startowe narzędzie: Flashlight.
+- Bazowa wypłata za noc: 200.
+- Losowane zadania bazowe: hydrant, graffiti, campfire, trash.
+- Domyślnie losowane są 3 zadania bazowe na noc.
+- Awaria prądu może dodać dodatkowy task electricity w trakcie nocy.
+
+Raport zmiany:
+- Pokazuje wykonane taski, ocenę, wypłatę i portfel.
+- Wykonane taski są zielone.
+- Niewykonane taski są czerwone.
+- UI jest auto-wyszukiwane po nazwach obiektów:
+  NightSummaryPanel
+  TasksSummaryText
+  RatingSummaryText
+  BonusSummaryText
+  PayoutSummaryText
+  WalletSummaryText
+  ShiftTimeText
+  NextNightButton
+  TaskRow1, TaskRow2, TaskRow3 itd.
+
+Przycisk następnej nocy:
+- Nazwa może być NextNightButton, wielkość liter nie ma znaczenia.
+- Po kliknięciu zapisuje portfel i przeładowuje aktywną scenę.
+
+
+6. PORTFEL I WYPŁATA
+--------------------
+Główne pliki:
+Assets/Scripts/Foundation/WalletManager.cs
+Assets/Scripts/Foundation/WalletUI.cs
+
+WalletManager:
+- Trzyma aktualny stan pieniędzy.
+- Umożliwia dodawanie pieniędzy.
+- Umożliwia sprawdzanie, czy gracz ma wystarczająco pieniędzy.
+- Umożliwia wydawanie pieniędzy przez TrySpendMoney.
+
+GameManager zapisuje portfel w PlayerPrefs:
+- Klucz: nightwatch_wallet_balance
+- Wersja save: nightwatch_wallet_balance_version
+
+Wypłata na końcu nocy:
+- Bazowo 200.
+- Bonus zależy od procentu wykonanych tasków.
+- 100% tasków: +100%.
+- Co najmniej 75% tasków: +50%.
+- Co najmniej 50% tasków: +30%.
+- Co najmniej 25% tasków: +10%.
+- 0 tasków: brak bonusu.
+
+
+7. NARZĘDZIA I HOTBAR
+---------------------
+Główne pliki:
+Assets/Scripts/Foundation/ToolType.cs
+Assets/Scripts/Foundation/ToolSelectionController.cs
+Assets/Scripts/Items/EquippedToolController.cs
+
+Sloty narzędzi:
+1. Flashlight - latarka.
+2. Key - klucz/narzędzie do napraw, np. hydranty i skrzynka elektryczna.
+3. Bucket - wiadro do gaszenia ogniska.
+4. Chainsaw - obecnie używany jako item/wałek do czyszczenia graffiti.
+5. Shotgun - broń lub placeholder pod przyszłą mechanikę.
+6. TrashBag - worek na śmieci.
+
+Uwaga:
+- W enumie ToolType TrashBag ma wartość 4, ale w hotbarze jest pod klawiszem 6, bo sloty liczone są od 0.
+- ToolSelectionController mapuje klawisze Alpha1-Alpha6 na narzędzia.
+
+EquippedToolController:
+- Tworzy wizual narzędzia w ręce.
+- Dla latarki tworzy runtime Light typu Spot.
+- Dla wiadra obsługuje animację przechylania i strumień wody.
+- Dla graffiti ukrywa narzędzie z ręki i tworzy runtime wałek na ścianie.
+
+
+8. SYSTEM INTERAKCJI
+--------------------
+Główne pliki:
+Assets/Scripts/Interaction/IInteractable.cs
+Assets/Scripts/Interaction/PlayerInteractor.cs
+Assets/Scripts/Interaction/InteractionPromptUI.cs
+
+Zasada działania:
+- PlayerInteractor rzuca raycast ze środka kamery.
+- Szuka komponentu implementującego IInteractable albo IHoldInteractable.
+- Pokazuje prompt na UI.
+- Klawisz interakcji: E.
+
+IInteractable:
+- GetPromptText zwraca tekst akcji.
+- CanInteract sprawdza, czy gracz może użyć aktualnego narzędzia.
+- Interact wykonuje akcję.
+
+IHoldInteractable:
+- Dla interakcji przytrzymywanych.
+- Używane np. do podnoszenia kosza przez 5 sekund.
+
+GlobalInteractionBlocked:
+- Statyczna blokada w PlayerInteractor.
+- Używana, gdy sklep lub raport blokuje normalne interakcje.
+
+
+9. SYSTEM TASKOW
+----------------
+Główne pliki:
+Assets/Scripts/Tasks/TaskDefinition.cs
+Assets/Scripts/Tasks/TaskRuntimeState.cs
+Assets/Scripts/Tasks/TaskManager.cs
+Assets/Scripts/Tasks/TaskTarget.cs
+Assets/Scripts/Tasks/TaskListUI.cs
+
+TaskDefinition:
+- ScriptableObject opisujący task.
+- Pola: taskId, displayName, requiredCount, requiredTool, taskType, description, rewardWeight.
+
+TaskRuntimeState:
+- Stan taska w czasie gry.
+- Trzyma progress, wymagany count, completed, failed i active.
+- Obsługuje też taski runtime bez ScriptableObjecta, np. electricity.
+
+TaskManager:
+- Buduje runtime listę tasków z TaskDefinition.
+- Losuje/aktywuje tylko wybrane taski na daną noc.
+- ReportProgress dodaje postęp.
+- SetRequiredCount zmienia wymaganą liczbę elementów, np. dla śmieci lub hydrantów.
+- EnsureRuntimeTask tworzy task runtime, np. awarię prądu.
+
+TaskListUI:
+- Pokazuje aktywne taski w UI.
+- Task wykonany dostaje checkmark.
+- Task niewykonany pokazuje progress lub wykrzyknik.
+
+TaskTarget:
+- Uniwersalny komponent interaktywny dla prostych tasków.
+- Może wymagać konkretnego narzędzia.
+- Może zniknąć po użyciu.
+- Może wygaszać materiał, np. przy czyszczeniu.
+- Obsługuje gaszenie ogniska i wyłączanie VFX ognia.
+
+
+10. AKTYWNE TASKI W GRZE
+------------------------
+Aktualne bazowe taski:
+- hydrant
+- graffiti
+- campfire
+- trash
+
+Task dodawany runtime:
+- electricity
+
+Hydrant:
+- Wymaga narzędzia Key.
+- Bootstrap wybiera około 1/3 hydrantów na mapie.
+- Targety wyszukiwane są po fragmencie nazwy FireHydrant.
+
+Graffiti:
+- Wymaga narzędzia Chainsaw, które w grze pełni rolę itemu do czyszczenia/wałka.
+- Graffiti pojawia się na budynku Building_u_prefab.
+- Czyszczenie trwa 10 sekund.
+- W trakcie czyszczenia graffiti powoli zanika.
+- Animacja robi wałek na ścianie, a item z ręki znika na czas czyszczenia.
+
+Campfire:
+- Wymaga Bucket.
+- Interakcja odpala animację przechylania wiadra w stronę ogniska.
+- Po ugaszeniu wyłączany jest VFX_FullOpaqueFire i powiązane światło/renderer.
+
+Trash:
+- System wybiera około połowę koszy na mapie.
+- Zwykłe kosze są ukrywane.
+- W ich miejscu pojawia się wywrócony kosz i rozsypane śmieci.
+- Śmieci trzeba zebrać.
+- Kosz trzeba podnieść przez przytrzymanie E przez 5 sekund.
+- Podczas podnoszenia kosz faktycznie się unosi i prostuje.
+
+Electricity:
+- Task pojawia się dopiero przy awarii prądu.
+- Awaria startuje o 01:00.
+- Wymaga Key.
+- Gracz musi znaleźć i naprawić skrzynkę elektryczną.
+- Po naprawie światła wracają.
+
+
+11. GRAFFITI
+------------
+Główne pliki:
+Assets/Scripts/World/BuildingGraffitiBootstrap.cs
+Assets/Scripts/World/GraffitiCleanupInteractable.cs
+
+BuildingGraffitiBootstrap:
+- Instaluje się automatycznie po załadowaniu SampleScene.
+- Szuka budynku Building_u_prefab.
+- Tworzy Quad o nazwie RuntimeGraffitiTarget.
+- Ustawia go jako dziecko budynku.
+- Domyślna lokalna pozycja graffiti: x 1.000002, y 1.8, z 6.783335.
+- Domyślna skala: x 2.4, y 1.6, z 1.
+- Tworzy proceduralną teksturę graffiti.
+
+GraffitiCleanupInteractable:
+- Sprawdza, czy task graffiti jest aktywny.
+- Wymaga odpowiedniego narzędzia.
+- Przy interakcji odpala 10 sekund czyszczenia.
+- Wysyła event animacji do EquippedToolController.
+- Stopniowo zmniejsza alfa materiału.
+- Na końcu wyłącza renderer i collider oraz raportuje progress do TaskManager.
+
+
+12. SMIECI I KOSZE
+------------------
+Główne pliki:
+Assets/Scripts/World/SpilledTrashCleanupBootstrap.cs
+Assets/Scripts/World/SpilledTrashCanInteractable.cs
+
+SpilledTrashCleanupBootstrap:
+- Instaluje się automatycznie w SampleScene.
+- Działa tylko jeśli task trash jest aktywny.
+- Szuka zwykłych koszy po nazwie WOC_Ct_Items_GarbageCan_02_Pre.
+- Wybiera losowo około 50% koszy.
+- Tworzy grupy SpilledTrashCleanup_X.
+- Ukrywa normalny kosz.
+- Tworzy lub przenosi wywrócony kosz.
+- Spawnuje kilka śmieci wokół kosza.
+- Ustawia wymagany progress taska trash jako liczba śmieci plus liczba koszy do po  
+
+SpilledTrashCanInteractable:
+- Implementuje IHoldInteractable oraz ITaskMarkerTarget.
+- Wymaga przytrzymania E przez 5 sekund.
+- Podczas podnoszenia kosz interpoluje pozycję i rotację do pozycji stojącej.
+- Po ukończeniu pokazuje normalny kosz i niszczy wywrócony obiekt.
+
+
+13. HYDRANTY I OGNISKO
+----------------------
+Główny plik:
+Assets/Scripts/World/SceneTaskTargetBootstrap.cs
+
+SceneTaskTargetBootstrap:
+- Instaluje się automatycznie po załadowaniu SampleScene.
+- Konfiguruje campfire i hydranty.
+- Campfire jest wyszukiwany po fragmencie nazwy Campfire.
+- Hydranty są wyszukiwane po fragmencie nazwy FireHydrant.
+- Hydranty są losowane w stosunku 0.34, czyli około 1/3 znalezionych obiektów.
+- Bootstrap ustawia warstwę Interactable lub fallback layer 6.
+- Dodaje collider, jeśli go nie ma.
+
+
+14. AWARIA PRADU I SKRZYNKA ELEKTRYCZNA
+---------------------------------------
+Główne pliki:
+Assets/Scripts/World/PowerOutageController.cs
+Assets/Scripts/World/ElectricBoxInteractable.cs
+
+PowerOutageController:
+- Instaluje się automatycznie w SampleScene.
+- Odpala awarię o 01:00.
+- Szuka świateł ulicznych/latarnianych po nazwach i materiałach.
+- Wyłącza komponenty Light oraz emisję/światło rendererów.
+- Nie usuwa całych latarni, wyłącza tylko światło i efekt świecenia.
+- Tworzy task runtime electricity.
+- Szuka skrzynki WOC_Ct_Items_ElectricBox_Pre lub spawnuje fallback.
+
+ElectricBoxInteractable:
+- Wymaga Key.
+- Działa tylko gdy awaria jest aktywna.
+- Po naprawie wywołuje RepairPower.
+- Raportuje progress do taska electricity.
+- Jest targetem dla markerów tasków.
+
+
+15. SKLEP I MARKERY TASKOW
+--------------------------
+Główne pliki:
+Assets/Scripts/Ui/ShopScreenController.cs
+Assets/Scripts/Ui/TaskWallMarkerController.cs
+Assets/Scripts/World/ShopInteractable.cs
+
+ShopInteractable:
+- Obiekt w świecie, który otwiera sklep po E.
+- Prompt: OTWORZ SKLEP.
+
+ShopScreenController:
+- Obsługuje UI sklepu.
+- Blokuje ruch/interakcję gracza podczas otwartego sklepu.
+- Pokazuje kursor.
+- Obsługuje kupowanie itemów.
+- Dla itemu item_1 działa specjalna logika czasowa markerów.
+
+Znacznik Zadan / item_1:
+- Nie jest stałym zakupem na zawsze.
+- Po kupieniu aktywuje widzenie tasków przez 120 minut czasu gry.
+- Przykład: kupione o 00:00 działa do 02:00.
+- Po wygaśnięciu markery znikają i item można kupić ponownie.
+- Stary zapis kupione na zawsze jest czyszczony/ignorowany.
+
+TaskWallMarkerController:
+- Instaluje się automatycznie w SampleScene, jeśli nie ma go w scenie.
+- Szuka MarkerPrefab i TaskMarkes w UI.
+- Markery są widoczne tylko jeśli ShopScreenController.IsPurchased(item_1) zwraca true.
+- Dla item_1 IsPurchased oznacza aktywny czasowy efekt.
+- Markery wskazują tylko aktywne, niewykonane taski.
+- Obsługiwane są runtime targety implementujące ITaskMarkerTarget.
+
+
+16. RAPORT ZMIANY
+-----------------
+Raport zmiany jest obsługiwany przez GameManager.
+
+Wymagane lub auto-wykrywane nazwy obiektów UI:
+- NightSummaryPanel
+- TasksSummaryText
+- RatingSummaryText
+- BonusSummaryText
+- PayoutSummaryText
+- WalletSummaryText
+- ShiftTimeText
+- NextNightButton
+- TaskRow1
+- TaskRow2
+- TaskRow3
+- TaskRow4
+
+Jak działa:
+- O 06:00 TimeManager odpala OnNightEnded.
+- GameManager blokuje ruch i interakcje.
+- Cursor jest odblokowany.
+- Panel raportu jest pokazywany.
+- Taski ukończone mają kolor zielony.
+- Taski nieukończone mają kolor czerwony.
+- Po kliknięciu NextNightButton zapisuje się portfel i scena jest przeładowywana.
+
