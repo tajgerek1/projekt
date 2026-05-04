@@ -1,0 +1,43 @@
+using TMPro;
+using UnityEngine;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class WalletUI : MonoBehaviour
+    {
+        [SerializeField] private WalletManager walletManager;
+        [SerializeField] private TextMeshProUGUI balanceText;
+        [SerializeField] private string balancePrefix = "$ ";
+
+        private void OnEnable()
+        {
+            if (walletManager == null)
+            {
+                Debug.LogError("[WalletUI] Missing WalletManager reference.", this);
+                return;
+            }
+
+            walletManager.OnWalletChanged += HandleWalletChanged;
+            HandleWalletChanged(walletManager.CurrentBalance);
+        }
+
+        private void OnDisable()
+        {
+            if (walletManager != null)
+            {
+                walletManager.OnWalletChanged -= HandleWalletChanged;
+            }
+        }
+
+        private void HandleWalletChanged(int balance)
+        {
+            if (balanceText == null)
+            {
+                return;
+            }
+
+            balanceText.text = $"{balancePrefix}{balance}";
+        }
+    }
+}

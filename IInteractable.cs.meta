@@ -1,0 +1,16 @@
+namespace NightWatch.Foundation
+{
+    public interface IInteractable
+    {
+        string GetPromptText(ToolType currentTool);
+        bool CanInteract(ToolType currentTool);
+        void Interact(ToolType currentTool);
+    }
+
+    public interface IHoldInteractable : IInteractable
+    {
+        void BeginHold(ToolType currentTool);
+        void UpdateHold(ToolType currentTool, float deltaTime);
+        void CancelHold();
+    }
+}

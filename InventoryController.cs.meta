@@ -1,0 +1,23 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace NightWatch.Items
+{
+    [DisallowMultipleComponent]
+    public sealed class InventoryController : MonoBehaviour
+    {
+        [SerializeField] private List<Object> items = new List<Object>();
+
+        public IReadOnlyList<Object> Items => items;
+
+        public void AddItem(Object item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            items.Add(item);
+        }
+    }
+}

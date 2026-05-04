@@ -1,0 +1,188 @@
+using UnityEngine;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class PlayerInteractor : MonoBehaviour
+    {
+        public static bool GlobalInteractionBlocked { get; set; }
+
+        [Header("References")]
+        [SerializeField] private Camera playerCamera;
+        [SerializeField] private ToolSelectionController toolSelectionController;
+        [SerializeField] private InteractionPromptUI promptUI;
+
+        [Header("Interaction")]
+        [SerializeField] [Min(0.1f)] private float interactionDistance = 3f;
+        [SerializeField] private LayerMask interactionMask = ~0;
+        [SerializeField] private KeyCode interactKey = KeyCode.E;
+
+        private bool hasLoggedMissingReferences;
+        private IHoldInteractable activeHoldInteractable;
+
+        private void OnDisable()
+        {
+            CancelActiveHold();
+
+            // When another system (for example shop UI) disables interaction,
+            // force-hide the prompt so it doesn't remain frozen on screen.
+            if (promptUI != null)
+            {
+                promptUI.Hide();
+            }
+        }
+
+        private void Update()
+        {
+            if (!ValidateReferences())
+            {
+                return;
+            }
+
+            if (GlobalInteractionBlocked)
+            {
+                CancelActiveHold();
+                promptUI.Hide();
+                return;
+            }
+
+            if (!TryGetLookedAtInteractable(out IInteractable interactable))
+            {
+                CancelActiveHold();
+                promptUI.Hide();
+                return;
+            }
+
+            ToolType currentTool = toolSelectionController.CurrentTool;
+            bool canInteract = interactable.CanInteract(currentTool);
+            if (activeHoldInteractable != null && !ReferenceEquals(activeHoldInteractable, interactable))
+            {
+                CancelActiveHold();
+            }
+
+            if (!canInteract)
+            {
+                CancelActiveHold();
+            }
+
+            string actionText = interactable.GetPromptText(currentTool);
+            if (string.IsNullOrWhiteSpace(actionText))
+            {
+                if (!canInteract)
+                {
+                    promptUI.Hide();
+                    return;
+                }
+
+                actionText = "INTERACT";
+            }
+
+            promptUI.Show(actionText, canInteract);
+
+            if (!canInteract)
+            {
+                return;
+            }
+
+            if (interactable is IHoldInteractable holdInteractable)
+            {
+                HandleHoldInteraction(holdInteractable, currentTool);
+                return;
+            }
+
+            if (Input.GetKeyDown(interactKey))
+            {
+                interactable.Interact(currentTool);
+            }
+        }
+
+        private void HandleHoldInteraction(IHoldInteractable holdInteractable, ToolType currentTool)
+        {
+            if (!Input.GetKey(interactKey))
+            {
+                if (ReferenceEquals(activeHoldInteractable, holdInteractable))
+                {
+                    CancelActiveHold();
+                }
+
+                return;
+            }
+
+            if (!ReferenceEquals(activeHoldInteractable, holdInteractable))
+            {
+                CancelActiveHold();
+                activeHoldInteractable = holdInteractable;
+                activeHoldInteractable.BeginHold(currentTool);
+            }
+
+            activeHoldInteractable.UpdateHold(currentTool, Time.deltaTime);
+            if (ReferenceEquals(activeHoldInteractable, holdInteractable) && !holdInteractable.CanInteract(currentTool))
+            {
+                activeHoldInteractable = null;
+            }
+        }
+
+        private void CancelActiveHold()
+        {
+            if (activeHoldInteractable == null)
+            {
+                return;
+            }
+
+            activeHoldInteractable.CancelHold();
+            activeHoldInteractable = null;
+        }
+
+        private bool ValidateReferences()
+        {
+            bool isValid = playerCamera != null && toolSelectionController != null && promptUI != null;
+            if (isValid)
+            {
+                return true;
+            }
+
+            if (!hasLoggedMissingReferences)
+            {
+                hasLoggedMissingReferences = true;
+                Debug.LogError("[PlayerInteractor] Missing references. Assign Player Camera, ToolSelectionController and InteractionPromptUI.", this);
+            }
+
+            return false;
+        }
+
+        private bool TryGetLookedAtInteractable(out IInteractable interactable)
+        {
+            interactable = null;
+
+            Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            RaycastHit[] hits = Physics.RaycastAll(ray, interactionDistance, interactionMask, QueryTriggerInteraction.Collide);
+            if (hits == null || hits.Length == 0)
+            {
+                return false;
+            }
+
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            for (int hitIndex = 0; hitIndex < hits.Length; hitIndex++)
+            {
+                Collider hitCollider = hits[hitIndex].collider;
+                if (hitCollider == null)
+                {
+                    continue;
+                }
+
+                MonoBehaviour[] candidates = hitCollider.GetComponentsInParent<MonoBehaviour>(true);
+                for (int i = 0; i < candidates.Length; i++)
+                {
+                    if (candidates[i] is IInteractable found)
+                    {
+                        interactable = found;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+}

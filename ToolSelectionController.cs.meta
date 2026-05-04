@@ -1,0 +1,156 @@
+using System;
+using TMPro;
+using UnityEngine;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class ToolSelectionController : MonoBehaviour
+    {
+        private const int SlotCount = 6;
+
+        [Header("Setup")]
+        [SerializeField] private ToolType defaultTool = ToolType.Flashlight;
+        [SerializeField] private GameObject[] slotHighlights = new GameObject[SlotCount];
+        [SerializeField] private TextMeshProUGUI activeToolLabel;
+
+        public ToolType CurrentTool { get; private set; } = ToolType.Flashlight;
+        public int CurrentSlotIndex { get; private set; }
+
+        public event Action<ToolType> OnToolChanged;
+
+        private void Awake()
+        {
+            SetCurrentTool(defaultTool, invokeEvent: false);
+        }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.Alpha1))
+            {
+                SelectSlot(0);
+            }
+            else if (Input.GetKeyDown(KeyCode.Alpha2))
+            {
+                SelectSlot(1);
+            }
+            else if (Input.GetKeyDown(KeyCode.Alpha3))
+            {
+                SelectSlot(2);
+            }
+            else if (Input.GetKeyDown(KeyCode.Alpha4))
+            {
+                SelectSlot(3);
+            }
+            else if (Input.GetKeyDown(KeyCode.Alpha5))
+            {
+                SelectSlot(4);
+            }
+            else if (Input.GetKeyDown(KeyCode.Alpha6))
+            {
+                SelectSlot(5);
+            }
+        }
+
+        public void SetCurrentTool(ToolType tool, bool invokeEvent = true)
+        {
+            int slotIndex = GetSlotIndexForTool(tool);
+            if (slotIndex < 0)
+            {
+                Debug.LogWarning($"[ToolSelectionController] Tool '{tool}' is not mapped to any slot.", this);
+                return;
+            }
+
+            SelectSlot(slotIndex, invokeEvent);
+        }
+
+        private void SelectSlot(int slotIndex, bool invokeEvent = true)
+        {
+            if (slotIndex < 0 || slotIndex >= SlotCount)
+            {
+                Debug.LogWarning($"[ToolSelectionController] Slot index out of range: {slotIndex}.", this);
+                return;
+            }
+
+            ToolType nextTool = GetToolForSlot(slotIndex);
+            bool changed = CurrentTool != nextTool || CurrentSlotIndex != slotIndex;
+
+            CurrentSlotIndex = slotIndex;
+            CurrentTool = nextTool;
+
+            RefreshSlotHighlights();
+            RefreshLabel();
+
+            if (invokeEvent)
+            {
+                OnToolChanged?.Invoke(CurrentTool);
+            }
+        }
+
+        private void RefreshSlotHighlights()
+        {
+            for (int i = 0; i < slotHighlights.Length; i++)
+            {
+                GameObject highlight = slotHighlights[i];
+                if (highlight == null)
+                {
+                    continue;
+                }
+
+                highlight.SetActive(i == CurrentSlotIndex);
+            }
+        }
+
+        private void RefreshLabel()
+        {
+            if (activeToolLabel == null)
+            {
+                return;
+            }
+
+            activeToolLabel.text = CurrentTool.ToString();
+        }
+
+        private static ToolType GetToolForSlot(int slotIndex)
+        {
+            switch (slotIndex)
+            {
+                case 0:
+                    return ToolType.Flashlight;
+                case 1:
+                    return ToolType.Key;
+                case 2:
+                    return ToolType.Bucket;
+                case 3:
+                    return ToolType.Chainsaw;
+                case 4:
+                    return ToolType.Shotgun;
+                case 5:
+                    return ToolType.TrashBag;
+                default:
+                    return ToolType.Flashlight;
+            }
+        }
+
+        private static int GetSlotIndexForTool(ToolType tool)
+        {
+            switch (tool)
+            {
+                case ToolType.Flashlight:
+                    return 0;
+                case ToolType.Key:
+                    return 1;
+                case ToolType.Bucket:
+                    return 2;
+                case ToolType.Chainsaw:
+                    return 3;
+                case ToolType.Shotgun:
+                    return 4;
+                case ToolType.TrashBag:
+                    return 5;
+                default:
+                    return -1;
+            }
+        }
+    }
+}

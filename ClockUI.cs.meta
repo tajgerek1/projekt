@@ -1,0 +1,47 @@
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class ClockUI : MonoBehaviour
+    {
+        [SerializeField] private TimeManager timeManager;
+        [SerializeField] private TextMeshProUGUI clockText;
+        [SerializeField] private Image progressFillImage;
+
+        private void OnEnable()
+        {
+            if (timeManager == null)
+            {
+                Debug.LogError("[ClockUI] Missing TimeManager reference.", this);
+                return;
+            }
+
+            timeManager.OnTimeChanged += HandleTimeChanged;
+            HandleTimeChanged(timeManager.FormattedTime, timeManager.NormalizedProgress);
+        }
+
+        private void OnDisable()
+        {
+            if (timeManager != null)
+            {
+                timeManager.OnTimeChanged -= HandleTimeChanged;
+            }
+        }
+
+        private void HandleTimeChanged(string formattedTime, float normalizedProgress)
+        {
+            if (clockText != null)
+            {
+                clockText.text = formattedTime;
+            }
+
+            if (progressFillImage != null)
+            {
+                progressFillImage.fillAmount = Mathf.Clamp01(normalizedProgress);
+            }
+        }
+    }
+}

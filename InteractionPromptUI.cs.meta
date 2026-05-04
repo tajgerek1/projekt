@@ -1,0 +1,88 @@
+using TMPro;
+using UnityEngine;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class InteractionPromptUI : MonoBehaviour
+    {
+        [Header("References")]
+        [SerializeField] private GameObject rootObject;
+        [SerializeField] private CanvasGroup rootCanvasGroup;
+        [SerializeField] private TextMeshProUGUI keyLabel;
+        [SerializeField] private TextMeshProUGUI actionLabel;
+
+        [Header("Visibility")]
+        [SerializeField] private bool toggleRootObjectWhenNoCanvasGroup = true;
+
+        [Header("Style")]
+        [SerializeField] private string keyText = "[E]";
+        [SerializeField] private Color validColor = new Color(1f, 0.87f, 0.55f, 1f);
+        [SerializeField] private Color invalidColor = new Color(1f, 0.35f, 0.35f, 1f);
+        [SerializeField] [Range(0f, 1f)] private float validAlpha = 1f;
+        [SerializeField] [Range(0f, 1f)] private float invalidAlpha = 0.65f;
+
+        private void Awake()
+        {
+            Hide();
+        }
+
+        public void Show(string actionText, bool canInteract)
+        {
+            bool usesSingleLabelFallback = keyLabel == null && actionLabel != null;
+            bool usesCanvasGroup = rootCanvasGroup != null;
+
+            if (keyLabel != null)
+            {
+                keyLabel.text = keyText;
+            }
+
+            if (actionLabel != null)
+            {
+                actionLabel.text = usesSingleLabelFallback ? $"{keyText} {actionText}" : actionText;
+            }
+
+            Color targetColor = canInteract ? validColor : invalidColor;
+            float targetAlpha = canInteract ? validAlpha : invalidAlpha;
+
+            if (keyLabel != null)
+            {
+                keyLabel.color = targetColor;
+            }
+
+            if (actionLabel != null)
+            {
+                actionLabel.color = targetColor;
+            }
+
+            if (usesCanvasGroup)
+            {
+                rootCanvasGroup.alpha = targetAlpha;
+                rootCanvasGroup.interactable = false;
+                rootCanvasGroup.blocksRaycasts = false;
+            }
+
+            if (!usesCanvasGroup && toggleRootObjectWhenNoCanvasGroup && rootObject != null && !rootObject.activeSelf)
+            {
+                rootObject.SetActive(true);
+            }
+        }
+
+        public void Hide()
+        {
+            bool usesCanvasGroup = rootCanvasGroup != null;
+
+            if (usesCanvasGroup)
+            {
+                rootCanvasGroup.alpha = 0f;
+                rootCanvasGroup.interactable = false;
+                rootCanvasGroup.blocksRaycasts = false;
+            }
+
+            if (!usesCanvasGroup && toggleRootObjectWhenNoCanvasGroup && rootObject != null && rootObject.activeSelf)
+            {
+                rootObject.SetActive(false);
+            }
+        }
+    }
+}

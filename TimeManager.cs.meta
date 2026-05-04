@@ -1,0 +1,102 @@
+using System;
+using UnityEngine;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class TimeManager : MonoBehaviour
+    {
+        private const int ShiftMinutesTotal = 8 * 60;
+        private const int ShiftStartHour = 22;
+        private const int MinutesInDay = 24 * 60;
+
+        [Header("Shift")]
+        [SerializeField] [Min(1f)] private float shiftDurationSeconds = 600f;
+        [SerializeField] [Min(0f)] private float elapsedTime;
+        [SerializeField] private bool isShiftRunning;
+        [SerializeField] [Min(0f)] private float elapsedShiftMinutes;
+
+        private bool nightEndedInvoked;
+
+        public float ShiftDurationSeconds => shiftDurationSeconds;
+        public float ElapsedTime => elapsedTime;
+        public bool IsShiftRunning => isShiftRunning;
+        public float ElapsedShiftMinutes => elapsedShiftMinutes;
+        public float NormalizedProgress => Mathf.Clamp01(elapsedTime / Mathf.Max(shiftDurationSeconds, 0.0001f));
+        public string FormattedTime => FormatTimeFromProgress(NormalizedProgress);
+
+        public event Action<string, float> OnTimeChanged;
+        public event Action OnNightEnded;
+
+        private void Update()
+        {
+            if (!isShiftRunning)
+            {
+                return;
+            }
+
+            elapsedTime += Time.deltaTime;
+            elapsedTime = Mathf.Min(elapsedTime, shiftDurationSeconds);
+
+            elapsedShiftMinutes = NormalizedProgress * ShiftMinutesTotal;
+            EmitTimeChanged();
+
+            if (elapsedTime >= shiftDurationSeconds)
+            {
+                EndNightInternal();
+            }
+        }
+
+        public void StartNight()
+        {
+            elapsedTime = 0f;
+            elapsedShiftMinutes = 0f;
+            isShiftRunning = true;
+            nightEndedInvoked = false;
+
+            EmitTimeChanged();
+            Debug.Log("[TimeManager] Night shift started at 22:00.", this);
+        }
+
+        public void EndNight()
+        {
+            if (!isShiftRunning && nightEndedInvoked)
+            {
+                return;
+            }
+
+            elapsedTime = shiftDurationSeconds;
+            elapsedShiftMinutes = ShiftMinutesTotal;
+            EmitTimeChanged();
+            EndNightInternal();
+        }
+
+        private void EndNightInternal()
+        {
+            if (nightEndedInvoked)
+            {
+                return;
+            }
+
+            isShiftRunning = false;
+            nightEndedInvoked = true;
+
+            Debug.Log("[TimeManager] Night shift ended at 06:00.", this);
+            OnNightEnded?.Invoke();
+        }
+
+        private void EmitTimeChanged()
+        {
+            OnTimeChanged?.Invoke(FormattedTime, NormalizedProgress);
+        }
+
+        private static string FormatTimeFromProgress(float progress)
+        {
+            int minutesFromStart = Mathf.Clamp(Mathf.FloorToInt(progress * ShiftMinutesTotal), 0, ShiftMinutesTotal);
+            int absoluteMinutes = (ShiftStartHour * 60 + minutesFromStart) % MinutesInDay;
+            int hours = absoluteMinutes / 60;
+            int minutes = absoluteMinutes % 60;
+            return $"{hours:00}:{minutes:00}";
+        }
+    }
+}

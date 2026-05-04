@@ -1,0 +1,722 @@
+using System.Collections.Generic;
+using System.Text;
+using TMPro;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+using NightWatch.Tasks;
+using StarterAssets;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class GameManager : MonoBehaviour
+    {
+        [Header("References")]
+        [SerializeField] private TimeManager timeManager;
+        [SerializeField] private WalletManager walletManager;
+        [SerializeField] private ToolSelectionController toolSelectionController;
+        [SerializeField] private TaskManager taskManager;
+
+        [Header("Startup")]
+        [SerializeField] private int startWalletBalance = 100;
+        [SerializeField] private ToolType startTool = ToolType.Flashlight;
+        [SerializeField] private bool persistWalletBalance = true;
+        [SerializeField] private string walletPrefsKey = "nightwatch_wallet_balance";
+        [SerializeField] private string walletSaveVersionPrefsKey = "nightwatch_wallet_balance_version";
+        [SerializeField] private bool migrateLegacyWalletSave = true;
+
+        [Header("Night Task Randomizer")]
+        [SerializeField] private bool randomizeTasksEachNight = true;
+        [SerializeField] private string[] randomBaseTaskIds = { "hydrant", "graffiti", "campfire", "trash" };
+        [SerializeField] [Min(1)] private int randomBaseTaskCount = 3;
+
+        [Header("Night Summary")]
+        [SerializeField] private GameObject nightSummaryPanel;
+        [SerializeField] private TextMeshProUGUI tasksSummaryText;
+        [SerializeField] private TextMeshProUGUI ratingSummaryText;
+        [SerializeField] private TextMeshProUGUI bonusSummaryText;
+        [SerializeField] private TextMeshProUGUI payoutSummaryText;
+        [SerializeField] private TextMeshProUGUI shiftReportText;
+        [SerializeField] private TextMeshProUGUI[] taskReportRows = new TextMeshProUGUI[0];
+        [SerializeField] private TextMeshProUGUI walletSummaryText;
+        [SerializeField] private TextMeshProUGUI shiftTimeText;
+        [SerializeField] private Button nextNightButton;
+        [SerializeField] [Min(0)] private int baseNightPay = 200;
+        [SerializeField] private Color completedTaskReportColor = new Color(0.49f, 1f, 0.42f, 1f);
+        [SerializeField] private Color incompleteTaskReportColor = new Color(1f, 0.42f, 0.42f, 1f);
+        [SerializeField] private bool showProgressInTaskList = false;
+
+        [Header("Player Lock On Night End")]
+        [SerializeField] private MonoBehaviour[] movementComponentsToToggle = new MonoBehaviour[0];
+        [SerializeField] private bool pauseGameOnSummary = true;
+        [SerializeField] private bool unlockCursorOnSummary = true;
+
+        private bool isNightSummaryOpen;
+        private const int WalletSaveVersion = 2;
+
+        private void Start()
+        {
+            TryAutoAssignMissingReferences();
+
+            if (!ValidateReferences())
+            {
+                return;
+            }
+
+            walletManager.OnWalletChanged += HandleWalletChanged;
+            walletManager.Initialize(GetInitialWalletBalance());
+            toolSelectionController.SetCurrentTool(startTool);
+
+            timeManager.OnNightEnded += HandleNightEnded;
+            if (nextNightButton != null)
+            {
+                nextNightButton.onClick.AddListener(HandleNextNightClicked);
+            }
+
+            if (nightSummaryPanel != null)
+            {
+                nightSummaryPanel.SetActive(false);
+            }
+
+            StartNewNight();
+        }
+
+        private void OnDestroy()
+        {
+            if (timeManager != null)
+            {
+                timeManager.OnNightEnded -= HandleNightEnded;
+            }
+
+            if (nextNightButton != null)
+            {
+                nextNightButton.onClick.RemoveListener(HandleNextNightClicked);
+            }
+
+            if (walletManager != null)
+            {
+                walletManager.OnWalletChanged -= HandleWalletChanged;
+            }
+
+            if (pauseGameOnSummary)
+            {
+                Time.timeScale = 1f;
+            }
+        }
+
+        private void TryAutoAssignMissingReferences()
+        {
+            if (taskManager == null)
+            {
+                taskManager = FindFirstObjectByType<TaskManager>();
+                if (taskManager != null)
+                {
+                    Debug.LogWarning("[GameManager] TaskManager was missing in Inspector, auto-assigned from scene.", this);
+                }
+            }
+
+            TryAutoAssignNightSummaryUi();
+        }
+
+        private void TryAutoAssignNightSummaryUi()
+        {
+            if (nightSummaryPanel == null)
+            {
+                nightSummaryPanel = FindSceneGameObjectByName("NightSummaryPanel");
+            }
+
+            Transform summaryRoot = nightSummaryPanel != null ? nightSummaryPanel.transform : null;
+            tasksSummaryText = ResolveNamedComponent(tasksSummaryText, "TasksSummaryText", summaryRoot);
+            ratingSummaryText = ResolveNamedComponent(ratingSummaryText, "RatingSummaryText", summaryRoot);
+            bonusSummaryText = ResolveNamedComponent(bonusSummaryText, "BonusSummaryText", summaryRoot);
+            payoutSummaryText = ResolveNamedComponent(payoutSummaryText, "PayoutSummaryText", summaryRoot);
+            walletSummaryText = ResolveNamedComponent(walletSummaryText, "WalletSummaryText", summaryRoot);
+            shiftTimeText = ResolveNamedComponent(shiftTimeText, "ShiftTimeText", summaryRoot);
+            nextNightButton = ResolveNamedComponent(nextNightButton, "NextNightButton", summaryRoot);
+
+            if (!HasTaskReportRows() && summaryRoot != null)
+            {
+                taskReportRows = FindTaskReportRows(summaryRoot);
+            }
+
+            if (shiftReportText == null && !HasTaskReportRows())
+            {
+                shiftReportText = ResolveNamedComponent(shiftReportText, "ShiftReportText", summaryRoot);
+            }
+        }
+
+        private void HandleNightEnded()
+        {
+            if (isNightSummaryOpen)
+            {
+                return;
+            }
+
+            isNightSummaryOpen = true;
+            SetPlayerMovementEnabled(false);
+            ShowNightSummary();
+            Debug.Log("[GameManager] Night ended. Summary panel displayed.", this);
+        }
+
+        private void HandleNextNightClicked()
+        {
+            if (!isNightSummaryOpen)
+            {
+                return;
+            }
+
+            SaveWalletBalance();
+            HideNightSummary();
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        }
+
+        private void StartNewNight()
+        {
+            SelectTasksForNewNight();
+            ResetPowerOutageControllers();
+            toolSelectionController.SetCurrentTool(startTool);
+            SetPlayerMovementEnabled(true);
+            timeManager.StartNight();
+            isNightSummaryOpen = false;
+        }
+
+        private void ShowNightSummary()
+        {
+            int completedTasks = taskManager.GetCompletedCount();
+            int totalTasks = Mathf.Max(taskManager.GetTotalCount(), 1);
+
+            int rating = Mathf.RoundToInt((completedTasks / (float)totalTasks) * 100f);
+            int bonusPercent = GetBonusPercent(completedTasks, totalTasks);
+            int payout = CalculateNightPayout(baseNightPay, bonusPercent);
+
+            walletManager.AddMoney(payout);
+            SaveWalletBalance();
+
+            if (tasksSummaryText != null)
+            {
+                tasksSummaryText.text = $"{completedTasks}/{totalTasks}";
+            }
+
+            if (ratingSummaryText != null)
+            {
+                ratingSummaryText.text = GetLetterGrade(rating);
+            }
+
+            if (bonusSummaryText != null)
+            {
+                bonusSummaryText.text = $"+{bonusPercent}%";
+            }
+
+            if (payoutSummaryText != null)
+            {
+                payoutSummaryText.text = $"${payout}";
+            }
+
+            if (shiftReportText != null)
+            {
+                shiftReportText.text = HasTaskReportRows() ? string.Empty : BuildShiftTaskList();
+            }
+
+            if (HasTaskReportRows())
+            {
+                PopulateTaskReportRows();
+            }
+
+            if (walletSummaryText != null)
+            {
+                walletSummaryText.text = $"${walletManager.CurrentBalance}";
+            }
+
+            if (shiftTimeText != null)
+            {
+                shiftTimeText.text = "22:00 - 06:00";
+            }
+
+            if (nightSummaryPanel != null)
+            {
+                nightSummaryPanel.SetActive(true);
+            }
+
+            if (unlockCursorOnSummary)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+        }
+
+        private string BuildShiftTaskList()
+        {
+            StringBuilder report = new StringBuilder();
+            var tasks = taskManager.GetAllTasks();
+
+            for (int i = 0; i < tasks.Count; i++)
+            {
+                TaskRuntimeState task = tasks[i];
+                string taskName = GetTaskReportName(task);
+                string progress = showProgressInTaskList ? $" ({task.CurrentProgress}/{task.RequiredCount})" : string.Empty;
+                Color lineColor = task.Completed ? completedTaskReportColor : incompleteTaskReportColor;
+                string colorHex = ColorUtility.ToHtmlStringRGB(lineColor);
+
+                report.AppendLine($"<color=#{colorHex}>{taskName}{progress}</color>");
+            }
+
+            return report.ToString();
+        }
+
+        private void PopulateTaskReportRows()
+        {
+            var tasks = taskManager.GetAllTasks();
+
+            for (int i = 0; i < taskReportRows.Length; i++)
+            {
+                TextMeshProUGUI rowText = taskReportRows[i];
+                if (rowText == null)
+                {
+                    continue;
+                }
+
+                if (i >= tasks.Count)
+                {
+                    rowText.text = string.Empty;
+                    continue;
+                }
+
+                TaskRuntimeState task = tasks[i];
+                rowText.text = GetTaskReportLine(task);
+                rowText.color = task.Completed ? completedTaskReportColor : incompleteTaskReportColor;
+            }
+        }
+
+        private bool HasTaskReportRows()
+        {
+            return taskReportRows != null && taskReportRows.Length > 0;
+        }
+
+        private static TextMeshProUGUI[] FindTaskReportRows(Transform summaryRoot)
+        {
+            if (summaryRoot == null)
+            {
+                return System.Array.Empty<TextMeshProUGUI>();
+            }
+
+            List<TextMeshProUGUI> rows = new List<TextMeshProUGUI>();
+            for (int i = 1; i <= 12; i++)
+            {
+                TextMeshProUGUI row = ResolveNamedComponent<TextMeshProUGUI>(null, $"TaskRow{i}", summaryRoot);
+                if (row != null)
+                {
+                    rows.Add(row);
+                }
+            }
+
+            if (rows.Count == 0)
+            {
+                TextMeshProUGUI[] texts = summaryRoot.GetComponentsInChildren<TextMeshProUGUI>(true);
+                for (int i = 0; i < texts.Length; i++)
+                {
+                    TextMeshProUGUI text = texts[i];
+                    if (text == null)
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(text.name, "ShiftReportText", System.StringComparison.OrdinalIgnoreCase) ||
+                        text.name.StartsWith("ShiftReportText (", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        rows.Add(text);
+                    }
+                }
+            }
+
+            if (rows.Count <= 1)
+            {
+                return System.Array.Empty<TextMeshProUGUI>();
+            }
+
+            rows.Sort(CompareTaskReportRows);
+            return rows.ToArray();
+        }
+
+        private static int CompareTaskReportRows(TextMeshProUGUI left, TextMeshProUGUI right)
+        {
+            RectTransform leftRect = left != null ? left.rectTransform : null;
+            RectTransform rightRect = right != null ? right.rectTransform : null;
+            if (leftRect != null && rightRect != null)
+            {
+                int yCompare = rightRect.anchoredPosition.y.CompareTo(leftRect.anchoredPosition.y);
+                if (yCompare != 0)
+                {
+                    return yCompare;
+                }
+            }
+
+            int leftSibling = left != null ? left.transform.GetSiblingIndex() : int.MaxValue;
+            int rightSibling = right != null ? right.transform.GetSiblingIndex() : int.MaxValue;
+            return leftSibling.CompareTo(rightSibling);
+        }
+
+        private static T ResolveNamedComponent<T>(T currentValue, string objectName, Transform preferredRoot) where T : Component
+        {
+            if (currentValue != null)
+            {
+                return currentValue;
+            }
+
+            Transform target = preferredRoot != null
+                ? FindChildByName(preferredRoot, objectName)
+                : FindSceneTransformByName(objectName);
+
+            return target != null ? target.GetComponent<T>() : null;
+        }
+
+        private static GameObject FindSceneGameObjectByName(string objectName)
+        {
+            Transform target = FindSceneTransformByName(objectName);
+            return target != null ? target.gameObject : null;
+        }
+
+        private static Transform FindChildByName(Transform root, string objectName)
+        {
+            if (root == null)
+            {
+                return null;
+            }
+
+            if (string.Equals(root.name, objectName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return root;
+            }
+
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform result = FindChildByName(root.GetChild(i), objectName);
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            return null;
+        }
+
+        private static Transform FindSceneTransformByName(string objectName)
+        {
+            Transform[] transforms = Resources.FindObjectsOfTypeAll<Transform>();
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                Transform candidate = transforms[i];
+                if (candidate == null ||
+                    !string.Equals(candidate.name, objectName, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!candidate.gameObject.scene.IsValid() || !candidate.gameObject.scene.isLoaded)
+                {
+                    continue;
+                }
+
+                return candidate;
+            }
+
+            return null;
+        }
+
+        private string GetTaskReportLine(TaskRuntimeState task)
+        {
+            string taskName = GetTaskReportName(task);
+            string progress = showProgressInTaskList ? $" ({task.CurrentProgress}/{task.RequiredCount})" : string.Empty;
+            return $"{taskName}{progress}";
+        }
+
+        private static string GetLetterGrade(int rating)
+        {
+            if (rating >= 95)
+            {
+                return "A";
+            }
+
+            if (rating >= 75)
+            {
+                return "B";
+            }
+
+            if (rating >= 50)
+            {
+                return "C";
+            }
+
+            if (rating >= 25)
+            {
+                return "D";
+            }
+
+            return "F";
+        }
+
+        private static string GetTaskReportName(TaskRuntimeState task)
+        {
+            if (task == null)
+            {
+                return "Nieznane zadanie";
+            }
+
+            if (!string.IsNullOrWhiteSpace(task.DisplayName))
+            {
+                return task.DisplayName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(task.TaskId))
+            {
+                return task.TaskId;
+            }
+
+            return "Nieznane zadanie";
+        }
+
+        private int GetInitialWalletBalance()
+        {
+            if (!persistWalletBalance || string.IsNullOrWhiteSpace(walletPrefsKey))
+            {
+                return startWalletBalance;
+            }
+
+            if (migrateLegacyWalletSave)
+            {
+                int savedVersion = string.IsNullOrWhiteSpace(walletSaveVersionPrefsKey)
+                    ? WalletSaveVersion
+                    : PlayerPrefs.GetInt(walletSaveVersionPrefsKey, 0);
+
+                if (savedVersion < WalletSaveVersion)
+                {
+                    int legacyBalance = PlayerPrefs.GetInt(walletPrefsKey, startWalletBalance);
+                    int migratedBalance = Mathf.Max(startWalletBalance, legacyBalance);
+                    PlayerPrefs.SetInt(walletPrefsKey, migratedBalance);
+
+                    if (!string.IsNullOrWhiteSpace(walletSaveVersionPrefsKey))
+                    {
+                        PlayerPrefs.SetInt(walletSaveVersionPrefsKey, WalletSaveVersion);
+                    }
+
+                    PlayerPrefs.Save();
+                    return migratedBalance;
+                }
+            }
+
+            return PlayerPrefs.GetInt(walletPrefsKey, startWalletBalance);
+        }
+
+        private void HandleWalletChanged(int balance)
+        {
+            _ = balance;
+            SaveWalletBalance();
+        }
+
+        private void SaveWalletBalance()
+        {
+            if (!persistWalletBalance || walletManager == null || string.IsNullOrWhiteSpace(walletPrefsKey))
+            {
+                return;
+            }
+
+            PlayerPrefs.SetInt(walletPrefsKey, walletManager.CurrentBalance);
+            if (!string.IsNullOrWhiteSpace(walletSaveVersionPrefsKey))
+            {
+                PlayerPrefs.SetInt(walletSaveVersionPrefsKey, WalletSaveVersion);
+            }
+
+            PlayerPrefs.Save();
+        }
+
+        private void SelectTasksForNewNight()
+        {
+            if (!randomizeTasksEachNight)
+            {
+                taskManager.ResetAllTasks();
+                return;
+            }
+
+            List<string> availableTaskIds = new List<string>();
+            for (int i = 0; i < randomBaseTaskIds.Length; i++)
+            {
+                string taskId = randomBaseTaskIds[i];
+                if (string.IsNullOrWhiteSpace(taskId))
+                {
+                    continue;
+                }
+
+                if (taskManager.TryGetTaskState(taskId.Trim(), out TaskRuntimeState _))
+                {
+                    availableTaskIds.Add(taskId.Trim());
+                }
+            }
+
+            Shuffle(availableTaskIds);
+            int selectedCount = availableTaskIds.Count > 0
+                ? Mathf.Clamp(randomBaseTaskCount, 1, availableTaskIds.Count)
+                : 0;
+            List<string> selectedTaskIds = new List<string>(selectedCount);
+            for (int i = 0; i < selectedCount; i++)
+            {
+                selectedTaskIds.Add(availableTaskIds[i]);
+            }
+
+            taskManager.SelectActiveTasks(selectedTaskIds);
+        }
+
+        private static void Shuffle<T>(IList<T> values)
+        {
+            for (int i = values.Count - 1; i > 0; i--)
+            {
+                int swapIndex = UnityEngine.Random.Range(0, i + 1);
+                T temporaryValue = values[i];
+                values[i] = values[swapIndex];
+                values[swapIndex] = temporaryValue;
+            }
+        }
+
+        private static void ResetPowerOutageControllers()
+        {
+#if UNITY_2023_1_OR_NEWER
+            NightWatch.World.PowerOutageController[] controllers =
+                FindObjectsByType<NightWatch.World.PowerOutageController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+#else
+            NightWatch.World.PowerOutageController[] controllers = FindObjectsOfType<NightWatch.World.PowerOutageController>();
+#endif
+            for (int i = 0; i < controllers.Length; i++)
+            {
+                if (controllers[i] != null)
+                {
+                    controllers[i].ResetForNewNight();
+                }
+            }
+        }
+
+        private void HideNightSummary()
+        {
+            if (nightSummaryPanel != null)
+            {
+                nightSummaryPanel.SetActive(false);
+            }
+        }
+
+        private void SetPlayerMovementEnabled(bool enabled)
+        {
+            if (pauseGameOnSummary)
+            {
+                Time.timeScale = enabled ? 1f : 0f;
+            }
+
+            for (int i = 0; i < movementComponentsToToggle.Length; i++)
+            {
+                MonoBehaviour component = movementComponentsToToggle[i];
+                if (component != null)
+                {
+                    component.enabled = enabled;
+                }
+            }
+
+            SetFirstPersonControllersLocked(!enabled);
+            PlayerInteractor.GlobalInteractionBlocked = !enabled;
+
+            if (!enabled && unlockCursorOnSummary)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+            else if (enabled && unlockCursorOnSummary)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+        }
+
+        private static void SetFirstPersonControllersLocked(bool locked)
+        {
+#if UNITY_2023_1_OR_NEWER
+            FirstPersonController[] controllers =
+                FindObjectsByType<FirstPersonController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+#else
+            FirstPersonController[] controllers = FindObjectsOfType<FirstPersonController>();
+#endif
+            for (int i = 0; i < controllers.Length; i++)
+            {
+                if (controllers[i] != null)
+                {
+                    controllers[i].SetMovementLocked(locked);
+                }
+            }
+        }
+
+        private static int CalculateNightPayout(int basePay, int bonusPercent)
+        {
+            float multiplier = 1f + Mathf.Max(0, bonusPercent) / 100f;
+            return Mathf.RoundToInt(Mathf.Max(0, basePay) * multiplier);
+        }
+
+        private static int GetBonusPercent(int completedTasks, int totalTasks)
+        {
+            if (totalTasks <= 0 || completedTasks <= 0)
+            {
+                return 0;
+            }
+
+            float completionRatio = completedTasks / (float)totalTasks;
+
+            if (completionRatio >= 1f)
+            {
+                return 100; // 4/4 -> +100%
+            }
+
+            if (completionRatio >= 0.75f)
+            {
+                return 50; // 3/4 -> +50%
+            }
+
+            if (completionRatio >= 0.5f)
+            {
+                return 30; // 2/4 -> +30%
+            }
+
+            if (completionRatio >= 0.25f)
+            {
+                return 10; // 1/4 -> +10%
+            }
+
+            return 0;
+        }
+
+        private bool ValidateReferences()
+        {
+            bool valid = true;
+
+            if (timeManager == null)
+            {
+                Debug.LogError("[GameManager] Missing TimeManager reference.", this);
+                valid = false;
+            }
+
+            if (walletManager == null)
+            {
+                Debug.LogError("[GameManager] Missing WalletManager reference.", this);
+                valid = false;
+            }
+
+            if (toolSelectionController == null)
+            {
+                Debug.LogError("[GameManager] Missing ToolSelectionController reference.", this);
+                valid = false;
+            }
+
+            if (taskManager == null)
+            {
+                Debug.LogError("[GameManager] Missing TaskManager reference.", this);
+                valid = false;
+            }
+
+            return valid;
+        }
+    }
+}

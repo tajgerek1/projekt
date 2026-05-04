@@ -1,0 +1,54 @@
+using System;
+using UnityEngine;
+
+namespace NightWatch.Foundation
+{
+    [DisallowMultipleComponent]
+    public sealed class WalletManager : MonoBehaviour
+    {
+        [SerializeField] [Min(0)] private int currentBalance;
+
+        public int CurrentBalance => currentBalance;
+
+        public event Action<int> OnWalletChanged;
+
+        public void Initialize(int startBalance)
+        {
+            SetBalance(startBalance);
+        }
+
+        public void SetBalance(int amount)
+        {
+            currentBalance = Mathf.Max(0, amount);
+            OnWalletChanged?.Invoke(currentBalance);
+        }
+
+        public void AddMoney(int amount)
+        {
+            if (amount == 0)
+            {
+                return;
+            }
+
+            SetBalance(currentBalance + amount);
+        }
+
+        public bool CanAfford(int amount)
+        {
+            int safeAmount = Mathf.Max(0, amount);
+            return currentBalance >= safeAmount;
+        }
+
+        public bool TrySpendMoney(int amount)
+        {
+            int safeAmount = Mathf.Max(0, amount);
+            if (!CanAfford(safeAmount))
+            {
+                return false;
+            }
+
+            SetBalance(currentBalance - safeAmount);
+            return true;
+        }
+    }
+}

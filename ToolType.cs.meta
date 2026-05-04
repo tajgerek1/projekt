@@ -1,0 +1,12 @@
+namespace NightWatch.Foundation
+{
+    public enum ToolType
+    {
+        Flashlight = 0,
+        Key = 1,
+        Bucket = 2,
+        Chainsaw = 3,
+        TrashBag = 4,
+        Shotgun = 5
+    }
+}
